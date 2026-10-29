@@ -148,7 +148,7 @@ ALTER TABLE customers MODIFY (email) ADD DOMAIN email_d;
 
 - **Re-associating validates existing rows** — a violating stored value fails the ALTER. That makes the association a free data-quality check (expect a full scan on large tables).
 - One domain per column: a second association raises ORA-11512.
-- **STRICT vs non-strict:** without `STRICT`, a column merely needs type limits ≥ the domain's — precision and scale are not enforced. With `STRICT` the limits must match exactly, otherwise ORA-11517.
+- **STRICT vs non-strict:** without `STRICT`, only the base type has to fit (a `NUMBER` domain on a `VARCHAR2` column raises ORA-11517); length, precision and scale are not compared in either direction, and the column keeps its own size — the column, not the domain, limits the value. Verified on 23.26: a `VARCHAR2(320 CHAR)` domain attaches to a `VARCHAR2(200 BYTE)` column, a `VARCHAR2(100)` domain to a `VARCHAR2(255)` column, and both columns keep 200/255. With `STRICT` the type must match exactly, including length semantics: a strict `VARCHAR2(255 CHAR)` domain fails on a `VARCHAR2(255 BYTE)` column with ORA-11517, a strict `VARCHAR2(255 BYTE)` domain attaches.
 
 Detaching a single column is treacherous (verified on Oracle Database 23ai, version 23.26):
 
@@ -239,7 +239,7 @@ ALTER TABLE legacy_orders MODIFY (order_status DOMAIN order_status_enum);
 
 1. **Plan constraint changes as recreations from day one.** Keep the original `CREATE DOMAIN` statement in a versioned deployment script so the recreation can copy it verbatim.
 2. **Re-attach validates.** Full scan per table; a failing row aborts the association with the offending constraint.
-3. **Non-strict ignores precision and scale.** A `NUMBER(10,2)` domain happily attaches to a plain `INTEGER` column. Use `STRICT` where the limits are part of the contract.
+3. **Non-strict ignores length, precision and scale — in both directions.** A `NUMBER(10,2)` domain happily attaches to a plain `INTEGER` column, a long `VARCHAR2` domain to a short column; the domain's size is then documentation only. Use `STRICT` where the limits are part of the contract.
 4. **No PL/SQL support.** Domains exist only in SQL: neither variables nor procedure/function parameters can be declared of a domain type, so the type safety a domain suggests ends at the table — a routine handling an `email_d` value still takes a plain `VARCHAR2` and accepts any string. `col%TYPE` on a domain column resolves to the bare base type without the domain's constraints. Workaround for critical routines: validate explicitly at entry with `DOMAIN_CHECK(domain_name, value)`.
 5. **Enum auto-numbering is order-dependent.** Assign explicit values to persisted enum domains.
 6. **Domains vs. lookup tables.** A domain enforces and documents a closed value list, but it is not a foreign key: no referenced rows, no joins. Use a domain for stable technical enumerations; use a lookup table when values carry attributes or change at runtime.
