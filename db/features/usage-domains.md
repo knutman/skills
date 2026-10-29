@@ -228,7 +228,7 @@ ALTER TABLE legacy_orders MODIFY (order_status DOMAIN order_status_enum);
 | Inherited table constraints | `USER_CONSTRAINTS.DOMAIN_NAME` |
 | Canonical rendering | `DOMAIN_DISPLAY(col [, col2, …])` |
 | Canonical sort key | `DOMAIN_ORDER(col [, col2, …])` |
-| Check value incl. constraints | `DOMAIN_CHECK(domain_name, value)` |
+| Check value incl. constraints | `DOMAIN_CHECK(domain_name, value)` — the domain name is an unquoted identifier (`DOMAIN_CHECK(email_d, …)`; as a string literal it raises ORA-00938); returns a SQL `BOOLEAN`, `NULL` passes |
 | Check type conversion only | `DOMAIN_CHECK_TYPE(domain_name, value)` |
 | Resolve at runtime | `DOMAIN_NAME(col)` |
 | Cast a literal | `CAST(value AS DOMAIN domain_name)` |
@@ -240,7 +240,14 @@ ALTER TABLE legacy_orders MODIFY (order_status DOMAIN order_status_enum);
 1. **Plan constraint changes as recreations from day one.** Keep the original `CREATE DOMAIN` statement in a versioned deployment script so the recreation can copy it verbatim.
 2. **Re-attach validates.** Full scan per table; a failing row aborts the association with the offending constraint.
 3. **Non-strict ignores length, precision and scale — in both directions.** A `NUMBER(10,2)` domain happily attaches to a plain `INTEGER` column, a long `VARCHAR2` domain to a short column; the domain's size is then documentation only. Use `STRICT` where the limits are part of the contract.
-4. **No PL/SQL support.** Domains exist only in SQL: neither variables nor procedure/function parameters can be declared of a domain type, so the type safety a domain suggests ends at the table — a routine handling an `email_d` value still takes a plain `VARCHAR2` and accepts any string. `col%TYPE` on a domain column resolves to the bare base type without the domain's constraints. Workaround for critical routines: validate explicitly at entry with `DOMAIN_CHECK(domain_name, value)`.
+4. **No PL/SQL support.** Domains exist only in SQL: neither variables nor procedure/function parameters can be declared of a domain type, so the type safety a domain suggests ends at the table — a routine handling an `email_d` value still takes a plain `VARCHAR2` and accepts any string. `col%TYPE` on a domain column resolves to the bare base type without the domain's constraints. Workaround for critical routines: validate explicitly at entry — but `DOMAIN_CHECK` is a SQL function; called directly in PL/SQL it raises PLS-00201, so go through SQL instead (verified on 23.26):
+
+   ```sql
+   SELECT DOMAIN_CHECK(email_d, p_email) INTO l_valid;   -- l_valid BOOLEAN
+   IF NOT l_valid THEN
+     RAISE_APPLICATION_ERROR(-20001, 'Invalid e-mail address: ' || p_email);
+   END IF;
+   ```
 5. **Enum auto-numbering is order-dependent.** Assign explicit values to persisted enum domains.
 6. **Domains vs. lookup tables.** A domain enforces and documents a closed value list, but it is not a foreign key: no referenced rows, no joins. Use a domain for stable technical enumerations; use a lookup table when values carry attributes or change at runtime.
 7. **Check the built-ins first.** SYS ships e-mail/phone/day domains with curated regexes.
